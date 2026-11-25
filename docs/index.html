@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#111716">
+  <title>Shahbaz Edits — Sign in</title>
+  <style>
+    :root{color-scheme:dark}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px 16px;background:radial-gradient(circle at 80% 10%,#1f2a1d 0,transparent 45%),#111716;color:#eef2e8;font:15px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+    .card{width:100%;max-width:380px;padding:32px 28px 28px;border:1px solid #2a3528;border-radius:20px;background:#161e1bcc;box-shadow:0 30px 60px -30px #000}
+    .brand{display:flex;align-items:center;gap:10px;margin-bottom:26px;font-weight:700;letter-spacing:.08em;font-size:13px}
+    .mark{display:grid;place-items:center;width:34px;height:34px;border:2px solid #c6f36b;border-radius:9px;color:#c6f36b;font-weight:800}
+    .brand em{font-style:normal;color:#c6f36b}
+    h1{margin:0 0 6px;font-size:24px;letter-spacing:-.02em}
+    p{margin:0 0 22px;color:#9aa79a;font-size:14px}
+    label{display:block;margin:0 0 6px;font-size:12px;font-weight:600;letter-spacing:.04em;color:#b5c0b3}
+    input{width:100%;height:44px;margin:0 0 16px;padding:0 14px;border:1px solid #33402f;border-radius:11px;background:#0e1412;color:#eef2e8;font:inherit;outline:none}
+    input:focus{border-color:#c6f36b;box-shadow:0 0 0 3px #c6f36b33}
+    button{width:100%;height:46px;margin-top:4px;border:0;border-radius:11px;background:#c6f36b;color:#111716;font:inherit;font-weight:700;cursor:pointer}
+    button:disabled{opacity:.6;cursor:progress}
+    .error{min-height:20px;margin:12px 0 0;color:#ff8f8f;font-size:13px}
+    .note{margin:18px 0 0;font-size:12px;color:#6f7c6f;text-align:center}
+  </style>
+</head>
+<body>
+  <form class="card" id="login" autocomplete="on">
+    <div class="brand"><span class="mark">S</span><span>SHAHBAZ <em>EDITS</em></span></div>
+    <h1>Private portfolio</h1>
+    <p>Internal access only. Sign in to view the collection.</p>
+    <label for="user">Username</label>
+    <input id="user" name="username" autocomplete="username" required autofocus>
+    <label for="pass">Password</label>
+    <input id="pass" name="password" type="password" autocomplete="current-password" required>
+    <button id="go" type="submit">Sign in</button>
+    <div class="error" id="error" role="alert"></div>
+    <div class="note">Content is encrypted and only unlocks with the correct details.</div>
+  </form>
+  <script>
+  (() => {
+    const SESSION = 'shahbaz-portfolio-key';
+    const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+    let payload;
+    const load = async () => payload ||= await (await fetch('./site.enc', {cache: 'no-store'})).json();
+
+    async function keyFrom(user, pass) {
+      const p = await load();
+      const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(user + ':' + pass), 'PBKDF2', false, ['deriveKey']);
+      return crypto.subtle.deriveKey({name: 'PBKDF2', salt: b64(p.salt), iterations: p.iterations, hash: 'SHA-256'}, base, {name: 'AES-GCM', length: 256}, true, ['decrypt']);
+    }
+    async function open(key) {
+      const p = await load();
+      const plain = await crypto.subtle.decrypt({name: 'AES-GCM', iv: b64(p.iv)}, key, b64(p.data));
+      const site = JSON.parse(new TextDecoder().decode(plain));
+      try { sessionStorage.setItem(SESSION, btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey('raw', key))))); } catch (_) {}
+      window.__portfolio = site;
+      const realFetch = window.fetch.bind(window);
+      window.fetch = (url, options) => /(^|\/)videos\.json(\?|$)/.test(String(url && url.url || url))
+        ? Promise.resolve(new Response(site.videos, {headers: {'Content-Type': 'application/json'}}))
+        : realFetch(url, options);
+      const boot = '<script>(function(){var s=window.__portfolio;s.scripts.forEach(function(code){var el=document.createElement("script");el.textContent=code;document.body.appendChild(el);});' +
+        'var lock=document.createElement("button");lock.type="button";lock.textContent="Lock";lock.title="Sign out of this tab";' +
+        'lock.style.cssText="position:fixed;left:16px;bottom:16px;z-index:9999;padding:8px 14px;border:1px solid #33402f;border-radius:999px;background:#111716;color:#c6f36b;font:600 12px system-ui;cursor:pointer";' +
+        'lock.onclick=function(){try{sessionStorage.removeItem("' + SESSION + '")}catch(e){}location.reload();};document.body.appendChild(lock);})();<\/script>';
+      document.open();
+      document.write(site.html.replace(/<\/body>/i, boot + '</body>'));
+      document.close();
+    }
+    async function resume() {
+      let raw; try { raw = sessionStorage.getItem(SESSION); } catch (_) {}
+      if (!raw) return;
+      try { await open(await crypto.subtle.importKey('raw', b64(raw), {name: 'AES-GCM'}, true, ['decrypt'])); }
+      catch (_) { try { sessionStorage.removeItem(SESSION); } catch (e) {} }
+    }
+    document.getElementById('login').addEventListener('submit', async event => {
+      event.preventDefault();
+      const go = document.getElementById('go'), error = document.getElementById('error');
+      go.disabled = true; go.textContent = 'Unlocking…'; error.textContent = '';
+      try { await open(await keyFrom(document.getElementById('user').value.trim(), document.getElementById('pass').value)); }
+      catch (_) { error.textContent = 'Incorrect username or password.'; go.disabled = false; go.textContent = 'Sign in'; }
+    });
+    resume();
+  })();
+  </script>
+</body>
+</html>

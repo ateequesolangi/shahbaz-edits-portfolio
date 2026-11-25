@@ -1,0 +1,9 @@
+﻿# Only the encrypted site and its tooling are published.
+# The readable site (dist/), data builder and screenshots stay on this computer.
+*
+!.gitignore
+!README.md
+!login.html
+!build-protected.cjs
+!docs/
+!docs/**
